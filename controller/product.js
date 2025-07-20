@@ -5,46 +5,34 @@ const Users = require('../model/users');
 
 const addProduct = errorHandler(async (req, res) => {
   const userId = req.user.id;
-  const user = await Users.findById(userId).populate('subscription');
-  const sub = user.subscription;
 
-  if (!sub || !sub.isActive) {
-    return res.status(403).json({ message: "لا يوجد اشتراك مفعل" });
-  }
+  const {
+    title,
+    description,
+    price,
+    category,
+    type,
+    fileUrl,
+    location,
+    conactInfo,
+    isPinned,
+  } = req.body;
 
-  const weekAgo = moment().subtract(7, "days").toDate();
-  const postCount = await Product.countDocuments({
-    owner: userId,
-    createdAt: { $gte: weekAgo },
-  });
-
-  if (postCount >= sub.productLimit) {
-    return res.status(403).json({
-      message:` 🚫 الحد الأسبوعي للخطة (${sub.plan}) هو ${sub.productLimit} منتجات`,
+  // تحقق من نوع المنتج وشروطه
+  if (type === "local" && (!location || !conactInfo)) {
+    return res.status(400).json({
+      message: "المنتج المحلي يتطلب موقع ووسيلة تواصل",
     });
   }
 
-  const { title, description, price, category,
-        type, fileUrl, location, conactInfo, isPinned } = req.body;
-
-  if (type === "local" &&
-      (!location || !conactInfo)) {
-    return res.status(400).json({
-      message: "المنتج المحلي يتطلب موقع ووسيلة تواصل"
-      });
-  }
   if (type === "digital" && !fileUrl) {
     return res.status(400).json({
-      message: "المنتج الرقمي يتطلب رابط شراء" 
-     });
+      message: "المنتج الرقمي يتطلب رابط شراء",
+    });
   }
 
-  let allowPinned = sub.canPinProduct;
-  const finalPinned = allowPinned ? 
-        isPinned === 'true' || isPinned === true : false;
-
   const cover = req.files?.cover?.[0]?.path || null;
-  const images = req.files?.images?.map(img => img.path) || [];
+  const images = req.files?.images?.map((img) => img.path) || [];
 
   const product = new Product({
     title,
@@ -57,16 +45,20 @@ const addProduct = errorHandler(async (req, res) => {
     conactInfo,
     cover,
     images,
-    isPinned: finalPinned,
+    isPinned: isPinned === 'true' || isPinned === true,
     owner: userId,
   });
 
   await product.save();
-  user.productsPosted.push(product._id);
-  await user.save();
+
+  // إضافة المنتج للـ user
+  await Users.findByIdAndUpdate(userId, {
+    $push: { productsPosted: product._id },
+  });
 
   res.status(201).json({ message: "✅ تمت إضافة المنتج بنجاح", product });
 });
+
 const myProduct = errorHandler(async (req, res) => {
      const userId = req.user.id;
      const user = await Users.findById(userId).populate('productsPosted');
